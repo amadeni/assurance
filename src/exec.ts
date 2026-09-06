@@ -82,13 +82,19 @@ export function lastJsonLine(stdout: string): unknown {
   }
 }
 
-/** Der letzte `[step]`-Befund aus stderr — die Diagnose von dev-contract. */
+/**
+ * Der Befund aus stderr — die Diagnose von dev-contract. Die Abbruchzeile
+ * („dev-contract failed [step] …“) schlägt jede Fortschrittszeile
+ * („[seed] done“), sonst zeigt der Report den letzten Erfolg statt des
+ * Fehlers.
+ */
 export function lastStepLine(stderr: string): string | null {
-  const lines = stderr
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => /^\[[a-z-]+\]/.test(line));
-  return lines[lines.length - 1] ?? null;
+  const lines = stderr.split('\n').map(line => line.trim());
+  const failure = lines
+    .filter(line => /failed\s+\[[a-z-]+\]/.test(line))
+    .at(-1);
+  if (failure) return failure.replace(/^dev-contract failed\s+/, '');
+  return lines.filter(line => /^\[[a-z-]+\]/.test(line)).at(-1) ?? null;
 }
 
 const seconds = (ms: number): string => `${Math.round(ms / 1000)}s`;

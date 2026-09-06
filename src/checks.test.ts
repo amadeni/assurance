@@ -402,5 +402,11 @@ describe('login-verified (ausgeführt)', () => {
     expect(lastJsonLine('noise')).toBeNull();
     expect(lastStepLine('[a] one\nplain\n[b-c] two\n')).toBe('[b-c] two');
     expect(lastStepLine('')).toBeNull();
+    // Die Abbruchzeile schlägt den letzten Fortschritt.
+    expect(
+      lastStepLine(
+        '[seed] done (function).\ndev-contract failed [app-start] app died immediately:\n  Error: listen EADDRINUSE\n',
+      ),
+    ).toBe('[app-start] app died immediately:');
   });
 });
