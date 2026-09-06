@@ -87,15 +87,46 @@ const ciGate: Check = repo => {
       .filter((block): block is string => block !== null);
     if (blocks.length === 0) problems.push('kein Workflow-Job `test`');
     else {
-      if (!blocks.some(block => /pnpm run ci\b/.test(block)))
-        problems.push('Job `test` führt `pnpm run ci` nicht aus');
-      if (!blocks.some(block => /assurance(@\S+)?\s+check\b/.test(block)))
-        problems.push('Job `test` führt `assurance check` nicht aus');
+      // Beide Kommandos in EINEM Job `test` — zwei Workflows, die sich die
+      // Pflicht teilen, erzwingen zusammen nichts.
+      const runsCi = (block: string) => /pnpm run ci\b/.test(block);
+      const runsAssurance = (block: string) =>
+        /assurance(@\S+)?\s+check\b/.test(block);
+      const complete = blocks.filter(
+        block => runsCi(block) && runsAssurance(block),
+      );
+      if (complete.length === 0) {
+        if (!blocks.some(runsCi))
+          problems.push('Job `test` führt `pnpm run ci` nicht aus');
+        if (!blocks.some(runsAssurance))
+          problems.push('Job `test` führt `assurance check` nicht aus');
+        if (blocks.some(runsCi) && blocks.some(runsAssurance))
+          problems.push(
+            '`pnpm run ci` und `assurance check` laufen nicht im selben Job `test`',
+          );
+      }
+      // Übersprungene Prüfungen sind kein Nachweis: --no-exec gehört nicht
+      // in die CI, --github muss den Report veröffentlichen.
+      const step = complete[0] ?? blocks.find(runsAssurance);
+      if (step) {
+        const line =
+          /^[^\n]*assurance(@\S+)?\s+check\b[^\n]*$/m.exec(step)?.[0] ?? '';
+        if (/--no-exec\b/.test(line))
+          problems.push(
+            'Job `test` ruft `assurance check --no-exec` — ausgeführte Prüfungen wären nur `skipped`',
+          );
+        if (!/--github\b/.test(line))
+          problems.push(
+            'Job `test` ruft `assurance check` ohne `--github` — kein Check-Run `assurance` für FlightControl und mynd',
+          );
+      }
     }
   }
   return problems.length
     ? fail(problems.join('; ') + '.')
-    : pass('Job `test`, `pnpm run ci` und `assurance check` vorhanden.');
+    : pass(
+        'Job `test` führt `pnpm run ci` und `assurance check --github` aus.',
+      );
 };
 
 const packageFloors: Check = repo => {

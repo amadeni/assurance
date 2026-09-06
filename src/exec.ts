@@ -121,13 +121,19 @@ export const loginVerified: Check = async (repo, ctx) => {
     cwd: repo.root,
     timeoutMs: ctx.execTimeoutMs,
   });
+  // In jedem Fall stoppen — und ein Stop, der nicht sauber endet, ist ein
+  // Befund: liegengebliebene Prozesse und belegte Ports vergiften den
+  // nächsten CI-Schritt.
+  let stopProblem: string | null = null;
   try {
-    await ctx.run('pnpm', ['exec', 'dev-contract', 'stop'], {
+    const stop = await ctx.run('pnpm', ['exec', 'dev-contract', 'stop'], {
       cwd: repo.root,
       timeoutMs: 60_000,
     });
-  } catch {
-    // Der Nachweis hängt am Start; ein hängender Stop ist ein CI-Aufräumproblem.
+    if (stop.timedOut || stop.code !== 0)
+      stopProblem = `dev-contract stop ${stop.timedOut ? 'hängt' : `endet mit Exit ${stop.code ?? '?'}`}${lastStepLine(stop.stderr) ? ` — ${lastStepLine(stop.stderr)}` : ''}`;
+  } catch (error) {
+    stopProblem = `dev-contract stop ließ sich nicht starten: ${error instanceof Error ? error.message : String(error)}`;
   }
   const step = lastStepLine(start.stderr);
   const because = step ? ` — ${step}` : '';
@@ -153,6 +159,11 @@ export const loginVerified: Check = async (repo, ctx) => {
     };
   const email =
     typeof output.auth?.email === 'string' ? output.auth.email : 'Dev-User';
+  if (stopProblem)
+    return {
+      status: 'fail',
+      detail: `ready nach ${seconds(start.durationMs)}, aber die Umgebung ließ sich nicht stoppen: ${stopProblem}.`,
+    };
   return {
     status: 'pass',
     detail: `ready nach ${seconds(start.durationMs)} — Login verifiziert (${email}).`,

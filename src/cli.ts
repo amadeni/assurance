@@ -15,7 +15,11 @@ import {
   type Level,
 } from './catalog.js';
 import { DEFAULT_EXEC_TIMEOUT_MS } from './exec.js';
-import { publishCheckRun, resolveGithubContext } from './github.js';
+import {
+  isForkPullRequest,
+  publishCheckRun,
+  resolveGithubContext,
+} from './github.js';
 import {
   MANIFEST_FILE,
   parseManifest,
@@ -176,16 +180,33 @@ export async function main(argv: string[]): Promise<number> {
   if (parsed.out) writeFileSync(parsed.out, json);
   if (parsed.json) process.stdout.write(json);
   if (parsed.github) {
+    // Ohne Check-Run haben FlightControl und mynd keinen Nachweis — das
+    // ist ein Fehler des Laufs (Exit 2), außer bei PRs aus Forks, die
+    // keinen Schreib-Token haben.
     const context = resolveGithubContext(process.env);
-    if (typeof context === 'string') {
-      err(`Check-Run nicht angelegt: ${context}.`);
-    } else {
-      const published = await publishCheckRun(report, context);
-      err(
-        published.ok
-          ? `Check-Run \`assurance\` angelegt${published.url ? `: ${published.url}` : ''}.`
-          : `Check-Run nicht angelegt: ${published.error}. Fork-PRs haben keinen Schreib-Token; auf main muss er klappen.`,
-      );
+    const failure =
+      typeof context === 'string'
+        ? context
+        : await publishCheckRun(report, context).then(published => {
+            if (published.ok) {
+              err(
+                `Check-Run \`assurance\` angelegt${published.url ? `: ${published.url}` : ''}.`,
+              );
+              return null;
+            }
+            return published.error;
+          });
+    if (failure !== null) {
+      if (isForkPullRequest(process.env)) {
+        err(
+          `Check-Run nicht angelegt (${failure}) — PR aus einem Fork, kein Schreib-Token; das Ergebnis gilt trotzdem.`,
+        );
+      } else {
+        err(
+          `Check-Run nicht angelegt: ${failure}. Der Job braucht \`permissions: checks: write\` und \`GITHUB_TOKEN\` im Schritt.`,
+        );
+        return 2;
+      }
     }
   }
   return report.ok ? 0 : 1;

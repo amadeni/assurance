@@ -24,6 +24,10 @@ export function embedReport(report: Report): string {
   return `${FENCE}json\n${JSON.stringify(report)}\n${FENCE}`;
 }
 
+const CLASSES = ['package', 'structure', 'conformance'];
+const VERIFIERS = ['local', 'exec', 'fleet'];
+const MATURITIES = ['active', 'planned'];
+
 const STATUSES: readonly ResultStatus[] = [
   'pass',
   'fail',
@@ -70,11 +74,56 @@ export function extractReport(text: string | null | undefined): Report | null {
       typeof result.feature !== 'string' ||
       typeof result.title !== 'string' ||
       typeof result.detail !== 'string' ||
+      !(CLASSES as readonly unknown[]).includes(result.class) ||
+      !(LEVELS as readonly unknown[]).includes(result.level) ||
+      !(VERIFIERS as readonly unknown[]).includes(result.verifier) ||
       !(STATUSES as readonly unknown[]).includes(result.status)
     )
       return null;
   }
+  for (const entry of json.catalog) {
+    if (
+      !isRecord(entry) ||
+      typeof entry.id !== 'string' ||
+      typeof entry.title !== 'string' ||
+      !(CLASSES as readonly unknown[]).includes(entry.class) ||
+      !(LEVELS as readonly unknown[]).includes(entry.level) ||
+      !(VERIFIERS as readonly unknown[]).includes(entry.verifier) ||
+      !(MATURITIES as readonly unknown[]).includes(entry.maturity) ||
+      typeof entry.promise !== 'string' ||
+      typeof entry.rationale !== 'string' ||
+      typeof entry.reference !== 'string' ||
+      typeof entry.remedy !== 'string'
+    )
+      return null;
+  }
   return json as unknown as Report;
+}
+
+/**
+ * Ob der Lauf zu einem PR aus einem Fork gehört — dort gibt es keinen
+ * Schreib-Token, der Check-Run kann nicht angelegt werden, und das ist
+ * kein Fehler des Projekts.
+ */
+export function isForkPullRequest(
+  env: NodeJS.ProcessEnv,
+  readFile: (path: string) => string = path => readFileSync(path, 'utf8'),
+): boolean {
+  if (!env.GITHUB_EVENT_PATH) return false;
+  try {
+    const event = JSON.parse(readFile(env.GITHUB_EVENT_PATH)) as {
+      pull_request?: {
+        head?: { repo?: { full_name?: string; fork?: boolean } };
+        base?: { repo?: { full_name?: string } };
+      };
+    };
+    const head = event.pull_request?.head?.repo;
+    const base = event.pull_request?.base?.repo;
+    if (!head || !base) return false;
+    return head.fork === true || head.full_name !== base.full_name;
+  } catch {
+    return false;
+  }
 }
 
 export type GithubContext = {

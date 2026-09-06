@@ -58,6 +58,7 @@ export {
   CHECK_RUN_NAME,
   embedReport,
   extractReport,
+  isForkPullRequest,
   levelOf,
   publishCheckRun,
   resolveGithubContext,

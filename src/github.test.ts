@@ -4,6 +4,7 @@ import {
   CHECK_RUN_NAME,
   embedReport,
   extractReport,
+  isForkPullRequest,
   publishCheckRun,
   resolveGithubContext,
 } from './github.js';
@@ -37,7 +38,20 @@ const report: Report = {
       detail: 'devcontract.config.json fehlt | Pipe.',
     },
   ],
-  catalog: [],
+  catalog: [
+    {
+      id: 'ci-gate',
+      title: 'CI-Gate',
+      class: 'structure',
+      level: 'basis',
+      verifier: 'local',
+      maturity: 'active',
+      promise: 'p',
+      rationale: 'r',
+      reference: 'ref',
+      remedy: 'rem',
+    },
+  ],
 };
 
 describe('Report im Check-Run', () => {
@@ -59,6 +73,40 @@ describe('Report im Check-Run', () => {
         }),
       ),
     ).toBeNull();
+    expect(
+      extractReport(
+        embedReport({
+          ...report,
+          results: [{ ...report.results[0]!, verifier: 'magic' as never }],
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      extractReport(
+        embedReport({
+          ...report,
+          catalog: [{ ...report.catalog[0]!, remedy: 7 as never }],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('erkennt PRs aus Forks am Event', () => {
+    const env = { GITHUB_EVENT_PATH: '/e.json' };
+    const event = (head: string, base: string, fork = false) =>
+      JSON.stringify({
+        pull_request: {
+          head: { repo: { full_name: head, fork } },
+          base: { repo: { full_name: base } },
+        },
+      });
+    expect(isForkPullRequest(env, () => event('x/y', 'a/b'))).toBe(true);
+    expect(isForkPullRequest(env, () => event('a/b', 'a/b', true))).toBe(true);
+    expect(isForkPullRequest(env, () => event('a/b', 'a/b'))).toBe(false);
+    expect(isForkPullRequest(env, () => '{"ref":"refs/heads/main"}')).toBe(
+      false,
+    );
+    expect(isForkPullRequest({})).toBe(false);
   });
 
   it('rendert Zusammenfassung und Tabelle ohne kaputte Pipes', () => {

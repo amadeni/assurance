@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: pnpm run ci
-      - run: pnpm dlx @amadeni/assurance@0.1 check
+      - run: pnpm dlx @amadeni/assurance@0.1.0 check --github
 `;
 
 const compliant: Files = {
@@ -147,6 +147,28 @@ describe('Prüfungen', () => {
     expect(outcome.detail).toContain(
       'Job `test` führt `assurance check` nicht aus',
     );
+  });
+
+  it('ci-gate verlangt beide Kommandos im selben Job, --github und kein --no-exec', async () => {
+    const split = repoWith({
+      'package.json': { scripts: { ci: 'prettier lint ts test' } },
+      '.github/workflows/ci.yml':
+        'jobs:\n  test:\n    steps:\n      - run: pnpm run ci\n',
+      '.github/workflows/assurance.yml':
+        'jobs:\n  test:\n    steps:\n      - run: pnpm dlx @amadeni/assurance@0.1.0 check --github\n',
+    });
+    const outcome = await CHECKS['ci-gate']!(split, staticCtx);
+    expect(outcome.status).toBe('fail');
+    expect(outcome.detail).toContain('nicht im selben Job');
+    const lax = repoWith({
+      'package.json': { scripts: { ci: 'prettier lint ts test' } },
+      '.github/workflows/ci.yml':
+        'jobs:\n  test:\n    steps:\n      - run: pnpm run ci\n      - run: pnpm dlx @amadeni/assurance@0.1.0 check --no-exec\n',
+    });
+    const laxOutcome = await CHECKS['ci-gate']!(lax, staticCtx);
+    expect(laxOutcome.status).toBe('fail');
+    expect(laxOutcome.detail).toContain('--no-exec');
+    expect(laxOutcome.detail).toContain('ohne `--github`');
   });
 
   it('ci-gate findet Workflows im Monorepo-Root', async () => {
@@ -326,6 +348,34 @@ describe('login-verified (ausgeführt)', () => {
     );
     expect(hung.status).toBe('fail');
     expect(hung.detail).toContain('nicht ready gemeldet');
+  });
+
+  it('ein Stop, der nicht sauber endet, ist ein Befund', async () => {
+    const runner: CommandRunner = (_command, args) =>
+      Promise.resolve(
+        args.includes('start')
+          ? {
+              code: 0,
+              stdout: READY,
+              stderr: '',
+              timedOut: false,
+              durationMs: 1,
+            }
+          : {
+              code: 1,
+              stdout: '',
+              stderr: '[stop] pgid 12 refused SIGTERM',
+              timedOut: false,
+              durationMs: 1,
+            },
+      );
+    const outcome = await CHECKS['login-verified']!(
+      repoWith(project),
+      ctx(runner),
+    );
+    expect(outcome.status).toBe('fail');
+    expect(outcome.detail).toContain('ließ sich nicht stoppen');
+    expect(outcome.detail).toContain('[stop] pgid 12 refused SIGTERM');
   });
 
   it('lässt ready ohne Sitzung nicht gelten und meldet skipped ohne exec', async () => {
