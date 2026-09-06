@@ -1,0 +1,34 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Named `test`: the fleet's required check, so the repo standard from
+  # FlightControl applies here like everywhere else.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: CI (prettier, lint, types, spelling, tests, build)
+        run: pnpm run ci
+
+      # The built CLI must run as `pnpm dlx` will run it — from dist, ESM,
+      # no source. `catalog` needs no repo; `check` against this repo is a
+      # preview without manifest (a library is no customer project).
+      - name: Smoke the built CLI
+        run: |
+          node dist/bin.js catalog
+          node dist/bin.js check --level basis --no-exec || true

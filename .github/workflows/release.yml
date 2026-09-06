@@ -1,0 +1,74 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || \
+            { echo "::error::Tag must be on the main branch"; exit 1; }
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install latest npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run CI checks
+        run: pnpm run ci
+
+      # Both publish steps skip a version that already exists on their
+      # registry, so a re-run after a partial release (npmjs ok, mirror
+      # failed) finishes the mirror instead of dying on npmjs.
+      - name: Publish to npm
+        id: npmjs
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "$name@$version already on npmjs — skipping"
+          else
+            npm publish --provenance --access public
+          fi
+
+      # Mirror to GitHub Packages so projects that route the whole @amadeni
+      # scope there (for private @amadeni/* packages from amadeni-core)
+      # resolve this package too. npmjs stays the public home.
+      # Runs whenever the npmjs step actually ran — also after it failed
+      # (e.g. a duplicate publish after a transient lookup error), so the
+      # mirror is completed and a re-run has nothing left to do. A step
+      # that never ran because CI or tag verification failed is 'skipped',
+      # and then nothing is mirrored.
+      - name: Mirror to GitHub Packages
+        if: ${{ !cancelled() && steps.npmjs.conclusion != 'skipped' }}
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> ~/.npmrc
+          if npm view "$name@$version" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "$name@$version already mirrored — skipping"
+          else
+            npm publish --registry=https://npm.pkg.github.com --ignore-scripts
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
