@@ -173,8 +173,10 @@ kein Report.
 - **Bruch des Report-Formats:** `REPORT_CONTRACT` erhöhen und FlightControl
   und mynd nachziehen — bis dahin lesen sie den neuen Report als „keiner“.
 - **Release:** `pnpm release` (patch) bzw. `release:minor` taggt und pusht;
-  der Workflow veröffentlicht auf npmjs (öffentlich) und spiegelt nach
-  GitHub Packages.
+  der Workflow veröffentlicht auf npmjs (öffentlich, mit dem Org-Secret
+  `NPM_TOKEN`) und spiegelt nach GitHub Packages. Die erste Version 0.1.0
+  bekommt ihren Tag von Hand (`git tag v0.1.0 main && git push origin v0.1.0`),
+  weil `pnpm release` sonst auf 0.1.1 hebt.
 
 ## Entwicklung
 

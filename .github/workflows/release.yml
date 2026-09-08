@@ -50,6 +50,10 @@ jobs:
           else
             npm publish --provenance --access public
           fi
+        env:
+          # Granularer Automation-Token der npm-Org (Org-Secret), kein
+          # Trusted Publisher: kein manuelles Verlinken je Paket.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Mirror to GitHub Packages so projects that route the whole @amadeni
       # scope there (for private @amadeni/* packages from amadeni-core)
