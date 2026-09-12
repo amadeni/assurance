@@ -1,0 +1,232 @@
+// Der Assurance-Katalog: was ein Amadeni-Kundenprojekt zusichert, in drei
+// Stufen. Jedes Feature ist ein Vertrag — Zusage, Warum, Referenz und
+// Abhilfe — mit einem natürlichen Träger (Paket, Struktur, Konformität)
+// und einem Prüfer: `local` prüft diese CLI statisch im CI des Projekts,
+// `exec` führt sie dort etwas aus, `fleet` prüft FlightControl von außen.
+//
+// Der Katalog ist Code, keine Prosa: eine Änderung ist ein PR hier, ein
+// Release hebt die Anforderung flottenweit. Ein Projekt zeigt sein Soll in
+// `assurance.json`; der Report jedes CI-Laufs trägt diesen Katalog mit, damit
+// FlightControl und mynd ohne eigene Kopie wissen, was ein Feature bedeutet.
+
+export const CATALOG_VERSION = 1;
+
+export type Level = 'basis' | 'standard' | 'voll';
+
+export const LEVELS: readonly Level[] = ['basis', 'standard', 'voll'];
+
+export const levelRank = (level: Level): number => LEVELS.indexOf(level);
+
+export const isLevel = (value: unknown): value is Level =>
+  typeof value === 'string' && (LEVELS as readonly string[]).includes(value);
+
+/** Wo die Anforderung lebt — bestimmt, wie sie geprüft und behoben wird. */
+export type FeatureClass = 'package' | 'structure' | 'conformance';
+
+/**
+ * `local`: statische Prüfung durch die CLI im CI des Projekts.
+ * `exec`: die CLI führt das Projekt aus (Dev-Start) — nur im CI, lokal per
+ * `--no-exec` überspringbar.
+ * `fleet`: FlightControl prüft von außen (Repo-Ruleset).
+ */
+export type Verifier = 'local' | 'exec' | 'fleet';
+
+/** `planned`: im Katalog benannt, aber noch nicht prüfbar — fällt nie durch. */
+export type Maturity = 'active' | 'planned';
+
+export type Feature = {
+  id: string;
+  title: string;
+  class: FeatureClass;
+  /** Die niedrigste Stufe, die das Feature verlangt. */
+  level: Level;
+  verifier: Verifier;
+  maturity: Maturity;
+  /** Welches Verhalten überall gelten muss. */
+  promise: string;
+  /** Warum — damit eine Ausnahme weiß, was sie aufgibt. */
+  rationale: string;
+  /** Wo die Referenz-Implementierung liegt. */
+  reference: string;
+  /** Die Abhilfe — als Auftrag an Echo formuliert. */
+  remedy: string;
+};
+
+/**
+ * Mindestversionen der geteilten Pakete. Ein Projekt, das ein Paket
+ * nutzt, muss mindestens diese Version haben; ein höherer Floor ist ein
+ * Katalog-Release.
+ */
+export const PACKAGE_FLOORS: Readonly<Record<string, string>> = {
+  '@amadeni/assurance': '0.1.0',
+  '@amadeni/dev-contract': '0.1.0',
+  '@amadeni/better-auth-kit': '0.4.2',
+  '@amadeni/convex-lib': '0.1.8',
+  '@amadeni/convex-e2e': '0.1.4',
+  '@amadeni/ui': '0.0.2',
+};
+
+export const FEATURES: readonly Feature[] = [
+  {
+    id: 'ci-gate',
+    title: 'CI-Gate',
+    class: 'structure',
+    level: 'basis',
+    verifier: 'local',
+    maturity: 'active',
+    promise:
+      'Jeder PR und jeder Push auf main läuft durch den Workflow-Job `test`, der `pnpm run ci` (Prettier, Lint, Typen, Tests oder Build) und `assurance check` ausführt.',
+    rationale:
+      'Der Repo-Schutzstandard verlangt genau diesen Check vor dem Merge; nur was im Job `test` läuft, wird erzwungen. Ohne ihn gilt jede Zusicherung nur am Tag des Anlegens.',
+    reference: 'template-app (.github/workflows/ci.yml, pnpm run ci)',
+    remedy:
+      'CI-Workflow mit Job `test`, der `pnpm run ci` (prettier:check, lint, ts, test oder build) und `assurance check --github` ausführt; der Job braucht `permissions: checks: write`, damit der Report als Check-Run erscheint.',
+  },
+  {
+    id: 'repo-standard',
+    title: 'Repo-Schutzstandard',
+    class: 'structure',
+    level: 'basis',
+    verifier: 'fleet',
+    maturity: 'active',
+    promise:
+      'Der Default-Branch ist durch das Flotten-Ruleset geschützt: Reviews, Required Check `test`, Echo mit maintain-Rolle, kein Bypass.',
+    rationale:
+      'Ein grüner Check beweist nur etwas, wenn niemand an ihm vorbei mergen kann.',
+    reference: 'flight-control (Machine.RepoAudit, ADR 0006/0013)',
+    remedy:
+      'In FlightControl „Standard anwenden“: Ruleset auf main, Reviews, Check `test`, Echo-Rolle.',
+  },
+  {
+    id: 'package-floors',
+    title: 'Paket-Mindestversionen',
+    class: 'package',
+    level: 'basis',
+    verifier: 'local',
+    maturity: 'active',
+    promise:
+      'Jedes genutzte @amadeni-Paket steht mindestens auf der Floor-Version des Katalogs; die Versionsangabe ist eine prüfbare Untergrenze.',
+    rationale:
+      'Geteilter Code lebt einmal im Paket. Ein Floor-Bump ist der Weg, eine Verbesserung flottenweit durchzusetzen, statt sie in jedem Repo nachzubauen.',
+    reference: '@amadeni/assurance (PACKAGE_FLOORS)',
+    remedy:
+      'Jedes genutzte @amadeni-Paket auf mindestens die Floor-Version aus dem Katalog heben (`pnpm up <paket>`), Lockfile committen.',
+  },
+  {
+    id: 'dev-contract',
+    title: 'Dev-Backend per just',
+    class: 'structure',
+    level: 'standard',
+    verifier: 'local',
+    maturity: 'active',
+    promise:
+      '`just dev` startet über `@amadeni/dev-contract` ein isoliertes Dev-Backend mit Seed und meldet erst ready, wenn ein Login nachweislich funktioniert.',
+    rationale:
+      'Visual Review, Clickthrough-Videos und Kundendemos brauchen ein Dev-System ohne Handgriff — „Screenshot zeigt den Login statt der App“ darf nicht passieren.',
+    reference: '@amadeni/dev-contract (README „Project integration“)',
+    remedy:
+      '`@amadeni/dev-contract` einbauen: `devcontract.config.json` im Repo-Root, Rezept `dev` im justfile, das `dev-contract start` ausführt (ready = verifizierter Login).',
+  },
+  {
+    id: 'auth-kit',
+    title: 'Auth-Flow aus dem Kit',
+    class: 'package',
+    level: 'standard',
+    verifier: 'local',
+    maturity: 'active',
+    promise:
+      'Login und Session laufen über Better Auth mit `createAmadeniAuthOptions`; die Dev-Auth-Fixture kommt aus `createDevAuth` des Kits.',
+    rationale:
+      'Ein eigener Auth-Flow je Projekt bedeutet eigene Sicherheitslücken je Projekt. Der Kit trägt Dev-Auth-Sperre (nie auf Prod) und Session-Regeln zentral.',
+    reference:
+      '@amadeni/better-auth-kit (createAmadeniAuthOptions, createDevAuth)',
+    remedy:
+      'Better Auth über `createAmadeniAuthOptions` aus `@amadeni/better-auth-kit` konfigurieren und die Dev-Auth-Fixture `createDevAuth` in convex/dev/auth.ts verdrahten.',
+  },
+  {
+    id: 'login-mail',
+    title: 'Login-Mail aus dem Kit',
+    class: 'package',
+    level: 'standard',
+    verifier: 'local',
+    maturity: 'active',
+    promise:
+      'Die Magic-Link-Mail wird über `createResendMagicLinkSender` aus dem Kit versendet, nicht über ein projekteigenes Template.',
+    rationale:
+      'Zustellung, Absender und Wortlaut sind Flottenqualität. Ein lokales Template driftet und wird bei Resend-Änderungen vergessen.',
+    reference: '@amadeni/better-auth-kit (createResendMagicLinkSender)',
+    remedy:
+      'Die Magic-Link-Mail über `createResendMagicLinkSender` aus dem Kit versenden statt über ein projekteigenes Template.',
+  },
+  {
+    id: 'login-verified',
+    title: 'Login demonstrierbar',
+    class: 'conformance',
+    level: 'standard',
+    verifier: 'exec',
+    maturity: 'active',
+    promise:
+      'Auf einem frischen Checkout meldet `dev-contract start` ready: Backend, Seed und ein verifizierter Login in einem Lauf — im CI ausgeführt, nicht nur konfiguriert.',
+    rationale:
+      'Konfiguration allein beweist nichts. Nur der ausgeführte Start zeigt, dass Seed, Token-Funktion und Verify-Endpunkt zusammenpassen.',
+    reference: '@amadeni/dev-contract (Readiness-Gate, ready = verified login)',
+    remedy:
+      '`assurance check` im CI ohne `--no-exec` laufen lassen. Scheitert der Start, den `[step]`-Befund aus dem Log beheben: Seed idempotent, `createDevToken` verdrahtet, `appUrl` und Port in devcontract.config.json korrekt.',
+  },
+  {
+    id: 'e2e-cli-test',
+    title: 'E2E-Tests gegen das Backend',
+    class: 'conformance',
+    level: 'standard',
+    verifier: 'local',
+    maturity: 'active',
+    promise:
+      'Ein `cli-test/`-Verzeichnis mit Smoke-Suite auf `@amadeni/convex-e2e` läuft per `test:e2e` gegen ein lokales Convex-Backend.',
+    rationale:
+      'Unit-Tests sehen keine Schema- oder Auth-Fehler. Die E2E-Suite gegen das echte Backend ist die Prüfung, die den Deploy-Bruch vor dem Deploy findet.',
+    reference: '@amadeni/convex-e2e (cli-test/)',
+    remedy:
+      '`@amadeni/convex-e2e` einbauen: Verzeichnis cli-test/ mit Smoke-Suite und Script `test:e2e`.',
+  },
+  {
+    id: 'ui-components',
+    title: 'Geteilte UI-Komponenten',
+    class: 'package',
+    level: 'voll',
+    verifier: 'local',
+    maturity: 'planned',
+    promise:
+      'Wiederkehrende UI-Bausteine kommen aus `@amadeni/ui`; lokale Duplikate sind ersetzt.',
+    rationale:
+      'Ein Design-System gilt nur, wenn es aus einem Paket kommt — sonst hat jedes Projekt seine eigene Version davon.',
+    reference: '@amadeni/ui (amadeni-core) — Paket ist noch leer',
+    remedy:
+      'Sobald @amadeni/ui Komponenten liefert: lokale Duplikate durch das Paket ersetzen.',
+  },
+  {
+    id: 'purescript-core',
+    title: 'PureScript-Kern an Convex',
+    class: 'conformance',
+    level: 'voll',
+    verifier: 'local',
+    maturity: 'active',
+    promise:
+      'Der Fachkern liegt als PureScript-Paket unter `purescript/`, das generierte Bundle unter `shared/` (`*.gen.mjs`), und Convex ruft nur den generierten Kern.',
+    rationale:
+      'Typisierte Zustandsmaschinen und Validatoren aus einer Quelle: TypeScript beobachtet, der Kern urteilt.',
+    reference: 'flight-control (purescript/, shared/core/*.gen.mjs, ADR 0003)',
+    remedy:
+      'Fachkern als PureScript-Paket unter purescript/ (spago.yaml), generiertes Bundle unter shared/ (`*.gen.mjs`) und Script `ps:codegen`; Convex ruft nur den generierten Kern.',
+  },
+];
+
+export function featureById(id: string): Feature | undefined {
+  return FEATURES.find(feature => feature.id === id);
+}
+
+/** Alle Features, die eine Stufe verlangt (die Stufen bauen aufeinander auf). */
+export function requiredFeatures(level: Level): Feature[] {
+  return FEATURES.filter(
+    feature => levelRank(feature.level) <= levelRank(level),
+  );
+}
