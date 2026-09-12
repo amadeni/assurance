@@ -79,8 +79,18 @@ jobs:
       - name: Assurance
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm dlx @amadeni/assurance@0.1.0 check --github
+          NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ }}
+        run: |
+          printf '@amadeni:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > "$RUNNER_TEMP/assurance.npmrc"
+          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/assurance.npmrc" pnpm dlx @amadeni/assurance@0.1.0 check --github
 ```
+
+Das Paket ist privat auf GitHub Packages. Gelesen wird mit einem Token
+`read:packages`: im CI das Org-Secret `GH_PACKAGES_READ` (einmal für alle
+Repos gesetzt), lokal der gh-Login (`gh auth token`) — Org-Mitglieder
+brauchen kein weiteres Secret. Registry und Token gelten nur für diesen
+Aufruf (`NPM_CONFIG_USERCONFIG`), nicht für das Projekt; die Templates
+bringen dafür `scripts/assurance.sh` und `just assurance` mit.
 
 Die Version ist exakt gepinnt: ein Katalog-Release ist ein bewusster Bump im
 Projekt, keine Überraschung im nächsten CI-Lauf. Fork-PRs haben keinen
@@ -173,10 +183,10 @@ kein Report.
 - **Bruch des Report-Formats:** `REPORT_CONTRACT` erhöhen und FlightControl
   und mynd nachziehen — bis dahin lesen sie den neuen Report als „keiner“.
 - **Release:** `pnpm release` (patch) bzw. `release:minor` taggt und pusht;
-  der Workflow veröffentlicht auf npmjs (öffentlich, mit dem Org-Secret
-  `NPM_TOKEN`) und spiegelt nach GitHub Packages. Die erste Version 0.1.0
-  bekommt ihren Tag von Hand (`git tag v0.1.0 main && git push origin v0.1.0`),
-  weil `pnpm release` sonst auf 0.1.1 hebt.
+  der Workflow veröffentlicht privat auf GitHub Packages mit dem
+  Workflow-Token des Repos — kein npm-Konto, kein Secret. Die erste Version
+  0.1.0 bekommt ihren Tag von Hand (`git tag v0.1.0 main && git push origin
+v0.1.0`), weil `pnpm release` sonst auf 0.1.1 hebt.
 
 ## Entwicklung
 
